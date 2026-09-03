@@ -1,0 +1,74 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-surface: var(--surface);
+  --color-coral: var(--coral);
+  --color-coral-strong: var(--coral-strong);
+  --color-mint: var(--mint);
+  --color-ink: var(--ink);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-display: Georgia, 'Times New Roman', serif;
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+}
+
+:root,
+.dark {
+  --background: #f4f1e8;
+  --foreground: #25312f;
+  --card: #fffaf0;
+  --card-foreground: #25312f;
+  --popover: #fffaf0;
+  --popover-foreground: #25312f;
+  --primary: #146662;
+  --primary-foreground: #fffaf0;
+  --secondary: #e5eee7;
+  --secondary-foreground: #35534d;
+  --muted: #e9e5da;
+  --muted-foreground: #66716d;
+  --accent: #f5d39d;
+  --accent-foreground: #5d4521;
+  --destructive: #bb3f48;
+  --border: #dcd7c9;
+  --input: #d2cdc0;
+  --ring: #3aa69e;
+  --surface: #f8f4e9;
+  --coral: #ef8a6c;
+  --coral-strong: #bd513d;
+  --mint: #bfe5d5;
+  --ink: #25312f;
+  --radius: 0.8rem;
+}
+
+@layer base {
+  * { @apply border-border outline-ring/50; }
+  html { @apply bg-background font-sans; }
+  body { @apply bg-background text-foreground; }
+  button, a, textarea { -webkit-tap-highlight-color: transparent; }
+  ::selection { background: color-mix(in srgb, var(--mint) 85%, transparent); color: var(--ink); }
+}
