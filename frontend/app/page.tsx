@@ -1,18 +1,17 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   ArrowRight,
   BarChart3,
-  BookOpen,
   Braces,
   Check,
   ChevronRight,
   Clipboard,
   KeyRound,
   LoaderCircle,
+  LockKeyhole,
   RotateCcw,
-  ShieldCheck,
   Sparkles,
 } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts';
@@ -22,9 +21,11 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart';
+import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 
-type CipherMode = 'auto' | 'caesar' | 'affine' | 'vigenere';
+type CipherMode = 'caesar' | 'affine' | 'vigenere';
+type Operation = 'decrypt' | 'encrypt';
 
 type Candidate = {
   cipher: string;
@@ -45,18 +46,16 @@ type Analysis = {
   key_lengths: { length: number; average_ic: number; kasiski_hits: number }[];
 };
 
-const ALPHABET = 'ABCDEFGHIJKLMNÑOPQRSTUVWXYZ';
-const SAMPLES = {
-  César:
-    'MFGPFXTGWJPFMNXYTWNFIJPFHWNUYTLWFKNFIJXIJPFFRYNLZJIFIQJRHNTRFRITVZJPFRJHJXNIFIIJTHZPYFWQJRXFÑJXMFJCNXYNITXNJQUWJUFWFUWTYJLJWXJHWJYTXQNPNYFWJXDUTPNYNHTX',
-  Afín:
-    'ASGITQHAIHRHITUTUVAFPAQEARQTHUXQBNBIHUIAZPHUQBNBIHAXIHHUBRIHUNHUQBNERAUARAITVTBNHAUGHWBIGAPNTZTARVBPBNGAPQTFPHVBUNBRBHIFHMAZTQBUQBRPAIHZTJHFHQTITVHV',
-  Vigenère:
-    'PYTGECCIXUNEDOJQNYÑMSGBCOJNSNFBQGOSMZAMSSMPHQNDMRMBVXUFQÑFFXOBMILKBVWWBPÑCBQPJFOOOSWBXFONNFKHHEESOFVEUNYZXJEXASEOCBWNFVWBXFONNQVUGFVNNDSYKVXNXPVNNFOQWUVBGFGNHJGNN',
+type Encryption = {
+  normalized_text: string;
+  ciphertext: string;
+  cipher: string;
+  key: string;
+  length: number;
 };
 
+const ALPHABET = 'ABCDEFGHIJKLMNÑOPQRSTUVWXYZ';
 const modes: { value: CipherMode; label: string }[] = [
-  { value: 'auto', label: 'Automático' },
   { value: 'caesar', label: 'César' },
   { value: 'affine', label: 'Afín' },
   { value: 'vigenere', label: 'Vigenère' },
@@ -87,17 +86,22 @@ function apiBase() {
 }
 
 export default function Home() {
-  const initialized = useRef(false);
-  const [ciphertext, setCiphertext] = useState(SAMPLES.César);
-  const [mode, setMode] = useState<CipherMode>('auto');
+  const [ciphertext, setCiphertext] = useState('');
+  const [operation, setOperation] = useState<Operation>('decrypt');
+  const [mode, setMode] = useState<CipherMode>('caesar');
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
+  const [encryption, setEncryption] = useState<Encryption | null>(null);
+  const [shift, setShift] = useState('5');
+  const [multiplier, setMultiplier] = useState('5');
+  const [offset, setOffset] = useState('7');
+  const [keyword, setKeyword] = useState('NUBE');
   const [activeCandidate, setActiveCandidate] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
   const normalized = useMemo(() => normalize(ciphertext), [ciphertext]);
 
-  const runAnalysis = useCallback(async () => {
+  async function runAnalysis() {
     if (normalized.length < 2) {
       setError('Escribe al menos dos letras para iniciar el análisis.');
       return;
@@ -122,14 +126,74 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }, [ciphertext, mode, normalized.length]);
+  }
 
-  useEffect(() => {
-    if (initialized.current) return;
-    initialized.current = true;
-    const timer = window.setTimeout(() => void runAnalysis(), 0);
-    return () => window.clearTimeout(timer);
-  }, [runAnalysis]);
+  async function runEncryption() {
+    setEncryption(null);
+    if (!normalized.length) {
+      setError('Escribe al menos una letra para encriptar.');
+      return;
+    }
+
+    const payload: Record<string, string | number> = { plaintext: ciphertext, cipher: mode };
+    if (mode === 'caesar') {
+      const value = Number(shift);
+      if (!Number.isInteger(value) || value < 0 || value > 26) {
+        setError('El desplazamiento k debe ser un número entero entre 0 y 26.');
+        return;
+      }
+      payload.shift = value;
+    } else if (mode === 'affine') {
+      const a = Number(multiplier);
+      const b = Number(offset);
+      if (!Number.isInteger(a) || a < 0 || a > 26) {
+        setError('El multiplicador a debe ser un número entero entre 0 y 26.');
+        return;
+      }
+      if ([0, 3, 6, 9, 12, 15, 18, 21, 24].includes(a)) {
+        setError('El multiplicador a debe ser coprimo con 27; por ejemplo 5.');
+        return;
+      }
+      if (!Number.isInteger(b) || b < 0 || b > 26) {
+        setError('El desplazamiento b debe ser un número entero entre 0 y 26.');
+        return;
+      }
+      payload.multiplier = a;
+      payload.offset = b;
+    } else {
+      if (!normalize(keyword)) {
+        setError('La palabra clave debe contener al menos una letra.');
+        return;
+      }
+      payload.keyword = keyword;
+    }
+
+    setLoading(true);
+    setError('');
+    setCopied(false);
+    try {
+      const response = await fetch(`${apiBase()}/encrypt`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const body = (await response.json()) as Encryption | { detail?: string };
+      if (!response.ok) {
+        throw new Error('detail' in body ? body.detail : 'No fue posible encriptar el texto.');
+      }
+      setEncryption(body as Encryption);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'La API no está disponible.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function changeOperation(next: Operation) {
+    setOperation(next);
+    setError('');
+    setCopied(false);
+  }
 
   const candidate = analysis?.candidates[activeCandidate];
   const topFrequencies = useMemo(
@@ -144,11 +208,11 @@ export default function Home() {
     window.setTimeout(() => setCopied(false), 1800);
   }
 
-  function loadSample(name: keyof typeof SAMPLES) {
-    setCiphertext(SAMPLES[name]);
-    setMode(name === 'César' ? 'caesar' : name === 'Afín' ? 'affine' : 'vigenere');
-    setAnalysis(null);
-    setError('');
+  async function copyEncryption() {
+    if (!encryption) return;
+    await navigator.clipboard.writeText(encryption.ciphertext);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1800);
   }
 
   return (
@@ -162,54 +226,51 @@ export default function Home() {
           </div>
           <div>
             <p className="font-display text-xl font-bold leading-none tracking-[-0.02em]">CriptaLab</p>
-            <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Orjuela · Heredia</p>
+            <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.13em] text-muted-foreground">Johann Sebastian Orjuela Heredia</p>
           </div>
         </a>
-        <nav className="hidden items-center gap-6 text-sm font-semibold text-muted-foreground sm:flex" aria-label="Principal">
-          <a className="text-foreground transition-colors hover:text-primary" href="#laboratorio">Laboratorio</a>
-          <a className="transition-colors hover:text-primary" href="#metodos">Métodos</a>
-          <Badge className="border-primary/15 bg-primary/10 text-primary" variant="outline">Seguridad 2026-II</Badge>
-        </nav>
+        <Badge className="hidden border-primary/15 bg-primary/10 text-primary sm:inline-flex" variant="outline">Seguridad 2026-II</Badge>
       </header>
 
-      <section className="relative z-10 mx-auto max-w-[1440px] px-5 pb-16 pt-7 sm:px-8 lg:px-12 lg:pt-10" id="inicio">
-        <div className="mb-8 max-w-3xl lg:mb-10">
-          <div className="mb-4 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.14em] text-primary">
-            <Sparkles className="size-4 text-coral" /> Criptoanálisis clásico, paso a paso
-          </div>
-          <h1 className="font-display text-[clamp(2.7rem,6vw,5.6rem)] font-bold leading-[0.92] tracking-[-0.055em] text-balance">
-            Encuentra el patrón.<span className="block text-primary">Revela el mensaje.</span>
-          </h1>
-          <p className="mt-5 max-w-2xl text-base leading-7 text-muted-foreground sm:text-lg">
-            Identifica César, Afín y Vigenère con evidencia visible: índice de coincidencia,
-            frecuencias y candidatos de clave en un solo lugar.
-          </p>
-        </div>
-
+      <section className="relative z-10 mx-auto max-w-[1440px] px-5 pb-12 pt-5 sm:px-8 lg:px-12 lg:pt-8" id="inicio">
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1.1fr)_minmax(360px,.9fr)] lg:items-start" id="laboratorio">
           <Card className="border border-border/80 bg-card/95 py-0 shadow-[0_22px_70px_rgba(61,64,53,.1)] ring-0">
             <CardHeader className="flex-row items-center justify-between border-b border-border px-5 py-4 sm:px-6">
               <div>
-                <p className="text-xs font-bold uppercase tracking-[0.13em] text-muted-foreground">Entrada</p>
-                <CardTitle className="font-display mt-1 text-xl font-bold">Criptograma</CardTitle>
+                <p className="text-xs font-bold uppercase tracking-[0.13em] text-primary">Entrada</p>
+                <CardTitle className="font-display mt-1 text-2xl font-bold">{operation === 'decrypt' ? 'Criptograma' : 'Texto original'}</CardTitle>
               </div>
               <Badge className="bg-secondary text-secondary-foreground" variant="secondary">Alfabeto ES · 27</Badge>
             </CardHeader>
             <CardContent className="px-5 pb-5 sm:px-6 sm:pb-6">
-              <div className="mb-4 mt-5 flex flex-wrap gap-2" aria-label="Ejemplos de validación">
-                {Object.keys(SAMPLES).map((name) => (
-                  <Button className="rounded-full" key={name} onClick={() => loadSample(name as keyof typeof SAMPLES)} size="sm" variant="outline">
-                    Ejemplo {name}
-                  </Button>
+              <div className="mt-5 grid grid-cols-2 rounded-xl border border-border bg-surface p-1" aria-label="Operación">
+                {([['decrypt', 'Descifrar'], ['encrypt', 'Encriptar']] as const).map(([value, label]) => (
+                  <button
+                    aria-pressed={operation === value}
+                    className={operation === value
+                      ? 'rounded-lg bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground shadow-sm'
+                      : 'rounded-lg px-4 py-2.5 text-sm font-semibold text-muted-foreground transition hover:text-foreground'}
+                    key={value}
+                    onClick={() => changeOperation(value)}
+                    type="button"
+                  >
+                    {label}
+                  </button>
                 ))}
               </div>
-              <label className="mb-2 block text-sm font-semibold" htmlFor="ciphertext">Pega el bloque cifrado</label>
+
+              <label className="mb-2 mt-5 block text-sm font-semibold" htmlFor="ciphertext">
+                {operation === 'decrypt' ? 'Pega el bloque cifrado' : 'Escribe el texto que quieres encriptar'}
+              </label>
               <Textarea
                 id="ciphertext"
                 aria-describedby="cipher-help"
                 className="min-h-[235px] resize-y rounded-2xl border-border bg-surface px-4 py-4 font-mono text-sm leading-7 tracking-[0.08em] shadow-inner focus-visible:border-primary focus-visible:ring-primary/15"
-                onChange={(event) => setCiphertext(event.target.value)}
-                placeholder="Escribe o pega aquí el criptograma…"
+                onChange={(event) => {
+                  setCiphertext(event.target.value);
+                  setEncryption(null);
+                }}
+                placeholder={operation === 'decrypt' ? 'Escribe o pega aquí el criptograma…' : 'Ejemplo: Nos vemos mañana a las ocho…'}
                 spellCheck={false}
                 value={ciphertext}
               />
@@ -219,8 +280,8 @@ export default function Home() {
               </div>
 
               <fieldset className="mt-5">
-                <legend className="mb-2 text-sm font-semibold">Método de ataque</legend>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <legend className="mb-2 text-sm font-semibold">{operation === 'decrypt' ? 'Método de ataque' : 'Algoritmo de cifrado'}</legend>
+                <div className="grid grid-cols-3 gap-2">
                   {modes.map((item) => (
                     <button
                       aria-pressed={mode === item.value}
@@ -228,7 +289,11 @@ export default function Home() {
                         ? 'rounded-xl border border-primary bg-primary px-3 py-2.5 text-sm font-bold text-primary-foreground shadow-sm transition'
                         : 'rounded-xl border border-border bg-surface px-3 py-2.5 text-sm font-semibold text-muted-foreground transition hover:border-primary/40 hover:text-foreground'}
                       key={item.value}
-                      onClick={() => setMode(item.value)}
+                      onClick={() => {
+                        setMode(item.value);
+                        setEncryption(null);
+                        setError('');
+                      }}
                       type="button"
                     >
                       {item.label}
@@ -237,22 +302,52 @@ export default function Home() {
                 </div>
               </fieldset>
 
+              {operation === 'encrypt' && (
+                <div className="mt-4 rounded-2xl border border-border bg-surface p-4">
+                  {mode === 'caesar' && (
+                    <label className="block text-sm font-semibold" htmlFor="shift">
+                      Desplazamiento k
+                      <Input className="mt-2 h-11 bg-card" id="shift" inputMode="numeric" max={26} min={0} onChange={(event) => setShift(event.target.value)} type="number" value={shift} />
+                    </label>
+                  )}
+                  {mode === 'affine' && (
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <label className="block text-sm font-semibold" htmlFor="multiplier">
+                        Multiplicador a
+                        <Input className="mt-2 h-11 bg-card" id="multiplier" inputMode="numeric" max={26} min={0} onChange={(event) => setMultiplier(event.target.value)} type="number" value={multiplier} />
+                      </label>
+                      <label className="block text-sm font-semibold" htmlFor="offset">
+                        Desplazamiento b
+                        <Input className="mt-2 h-11 bg-card" id="offset" inputMode="numeric" max={26} min={0} onChange={(event) => setOffset(event.target.value)} type="number" value={offset} />
+                      </label>
+                      <p className="text-xs text-muted-foreground sm:col-span-2">a debe ser coprimo con 27. Ejemplo válido: a = 5, b = 7.</p>
+                    </div>
+                  )}
+                  {mode === 'vigenere' && (
+                    <label className="block text-sm font-semibold" htmlFor="keyword">
+                      Palabra clave
+                      <Input className="mt-2 h-11 bg-card font-mono uppercase" id="keyword" maxLength={64} onChange={(event) => setKeyword(event.target.value)} placeholder="NUBE" spellCheck={false} value={keyword} />
+                    </label>
+                  )}
+                </div>
+              )}
+
               {error && (
                 <Alert className="mt-4 border-coral/40 bg-coral/10 text-coral-strong">
-                  <AlertTitle>No pudimos analizar todavía</AlertTitle>
+                  <AlertTitle>{operation === 'decrypt' ? 'No pudimos analizar todavía' : 'Revisa los datos del cifrado'}</AlertTitle>
                   <AlertDescription className="text-coral-strong/85">{error}</AlertDescription>
                 </Alert>
               )}
 
-              <Button className="mt-5 h-12 w-full rounded-xl bg-primary px-5 text-[15px] font-bold shadow-[0_10px_24px_rgba(20,102,98,.2)] hover:bg-primary/90" disabled={loading} onClick={() => void runAnalysis()}>
-                {loading ? <LoaderCircle className="mr-1 size-4 animate-spin" /> : <Sparkles className="mr-1 size-4" />}
-                {loading ? 'Buscando patrones…' : 'Analizar criptograma'}
+              <Button className="mt-5 h-12 w-full rounded-xl bg-primary px-5 text-[15px] font-bold shadow-[0_10px_24px_rgba(20,102,98,.2)] hover:bg-primary/90" disabled={loading} onClick={() => void (operation === 'decrypt' ? runAnalysis() : runEncryption())}>
+                {loading ? <LoaderCircle className="mr-1 size-4 animate-spin" /> : operation === 'decrypt' ? <Sparkles className="mr-1 size-4" /> : <LockKeyhole className="mr-1 size-4" />}
+                {loading ? (operation === 'decrypt' ? 'Buscando patrones…' : 'Encriptando…') : (operation === 'decrypt' ? 'Analizar criptograma' : 'Encriptar texto')}
                 {!loading && <ArrowRight className="ml-1 size-4" />}
               </Button>
             </CardContent>
           </Card>
 
-          <div className="grid gap-5">
+          <div className={operation === 'decrypt' ? 'grid gap-5' : 'hidden'}>
             <Card className="relative overflow-hidden border-0 bg-primary py-0 text-primary-foreground ring-0">
               <div className="absolute right-[-42px] top-[-58px] size-44 rounded-full border-[28px] border-white/8" />
               <CardContent className="relative px-6 py-6 sm:px-7 sm:py-7">
@@ -302,9 +397,46 @@ export default function Home() {
               </CardContent>
             </Card>
           </div>
+
+          {operation === 'encrypt' && (
+            <Card className="relative min-h-[420px] overflow-hidden border-0 bg-primary py-0 text-primary-foreground ring-0">
+              <div className="absolute right-[-52px] top-[-65px] size-52 rounded-full border-[34px] border-white/8" />
+              <CardContent className="relative flex min-h-[420px] flex-col px-6 py-7 sm:px-8">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="grid size-11 place-items-center rounded-2xl bg-white/12"><LockKeyhole className="size-5" /></div>
+                  <Badge className="border-white/15 bg-white/10 text-white" variant="outline">Resultado</Badge>
+                </div>
+                {encryption ? (
+                  <div className="mt-8 flex flex-1 flex-col">
+                    <p className="text-sm font-medium text-white/70">Texto cifrado</p>
+                    <div className="mt-3 max-h-[260px] flex-1 overflow-auto rounded-2xl bg-black/15 p-5 font-mono text-lg font-bold leading-8 tracking-[0.12em] break-all">
+                      {encryption.ciphertext}
+                    </div>
+                    <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-bold">{encryption.cipher} · {encryption.key}</p>
+                        <p className="mt-1 text-xs text-white/65">{encryption.length} letras · mayúsculas y sin espacios</p>
+                      </div>
+                      <Button className="rounded-xl border-white/20 bg-white/10 text-white hover:bg-white/20 hover:text-white" onClick={() => void copyEncryption()} variant="outline">
+                        {copied ? <Check className="mr-1 size-4" /> : <Clipboard className="mr-1 size-4" />}
+                        {copied ? 'Copiado' : 'Copiar cifrado'}
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid flex-1 place-items-center text-center">
+                    <div>
+                      <p className="font-display text-2xl font-bold">El cifrado aparecerá aquí</p>
+                      <p className="mt-2 text-sm text-white/65">Elige el algoritmo, completa su clave y encripta el texto.</p>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
         </div>
 
-        <section className="mt-5" aria-labelledby="results-title">
+        <section className={operation === 'decrypt' ? 'mt-5' : 'hidden'} aria-labelledby="results-title">
           <Card className="border border-border bg-card py-0 ring-0">
             <CardHeader className="flex-row items-center justify-between border-b border-border px-5 py-5 sm:px-7">
               <div>
@@ -367,7 +499,7 @@ export default function Home() {
           </Card>
         </section>
 
-        {analysis && analysis.key_lengths.length > 0 && (
+        {operation === 'decrypt' && analysis && analysis.key_lengths.length > 0 && (
           <section className="mt-5 rounded-3xl border border-border bg-secondary/70 p-5 sm:p-7" aria-labelledby="kasiski-title">
             <div className="flex items-center gap-3">
               <div className="grid size-10 place-items-center rounded-xl bg-primary text-primary-foreground"><RotateCcw className="size-4" /></div>
@@ -386,35 +518,7 @@ export default function Home() {
           </section>
         )}
 
-        <section className="mt-16" id="metodos" aria-labelledby="methods-title">
-          <div className="mb-7 flex items-end justify-between gap-5">
-            <div><p className="text-xs font-bold uppercase tracking-[0.13em] text-coral-strong">Cómo pensamos</p><h2 className="font-display mt-2 text-3xl font-bold tracking-tight" id="methods-title">Tres ataques, una ruta clara</h2></div>
-            <BookOpen className="hidden size-7 text-primary sm:block" />
-          </div>
-          <div className="grid gap-4 md:grid-cols-3">
-            {[
-              { number: '01', title: 'César', copy: 'Probamos los 26 desplazamientos y ordenamos los resultados por cercanía al español.', tone: 'bg-coral/15 text-coral-strong' },
-              { number: '02', title: 'Afín', copy: 'Evaluamos las 486 combinaciones válidas y mostramos el inverso modular utilizado.', tone: 'bg-accent text-accent-foreground' },
-              { number: '03', title: 'Vigenère', copy: 'Buscamos secuencias repetidas, estimamos la longitud y resolvemos cada columna.', tone: 'bg-mint text-primary' },
-            ].map((item) => (
-              <Card className="border border-border bg-card py-0 ring-0" key={item.number}>
-                <CardContent className="p-6">
-                  <span className={`inline-grid size-10 place-items-center rounded-xl font-mono text-xs font-bold ${item.tone}`}>{item.number}</span>
-                  <h3 className="font-display mt-7 text-2xl font-bold">{item.title}</h3>
-                  <p className="mt-3 text-sm leading-6 text-muted-foreground">{item.copy}</p>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </section>
       </section>
-
-      <footer className="relative z-10 border-t border-border bg-secondary/55">
-        <div className="mx-auto flex max-w-[1440px] flex-col gap-3 px-5 py-6 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:px-8 lg:px-12">
-          <p className="flex items-center gap-2"><ShieldCheck className="size-4 text-primary" /> Laboratorio académico · Universidad El Bosque</p>
-          <p className="font-mono text-xs">orjuelaheredia.space</p>
-        </div>
-      </footer>
     </main>
   );
 }

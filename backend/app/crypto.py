@@ -90,6 +90,25 @@ def _caesar_decrypt(text: str, shift: int) -> str:
     return "".join(ALPHABET[(INDEX[letter] - shift) % MODULUS] for letter in text)
 
 
+def caesar_encrypt(text: str, shift: int) -> str:
+    return "".join(ALPHABET[(INDEX[letter] + shift) % MODULUS] for letter in text)
+
+
+def affine_encrypt(text: str, multiplier: int, offset: int) -> str:
+    return "".join(
+        ALPHABET[(multiplier * INDEX[letter] + offset) % MODULUS]
+        for letter in text
+    )
+
+
+def vigenere_encrypt(text: str, keyword: str) -> str:
+    shifts = [INDEX[letter] for letter in keyword]
+    return "".join(
+        ALPHABET[(INDEX[letter] + shifts[position % len(shifts)]) % MODULUS]
+        for position, letter in enumerate(text)
+    )
+
+
 def caesar_candidates(text: str, limit: int = 6) -> list[Candidate]:
     ranked = []
     for shift in range(1, MODULUS):
@@ -206,4 +225,3 @@ def analyze_candidates(text: str, mode: str, index: float) -> tuple[list[Candida
         return sorted(combined, key=lambda item: item.score)[:8], []
 
     return vigenere_candidates(text)
-

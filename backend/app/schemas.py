@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 
 CipherMode = Literal["auto", "caesar", "affine", "vigenere"]
+EncryptionCipher = Literal["caesar", "affine", "vigenere"]
 
 
 class AnalysisRequest(BaseModel):
@@ -41,3 +42,19 @@ class AnalysisResponse(BaseModel):
     candidates: list[Candidate]
     key_lengths: list[LengthCandidate]
 
+
+class EncryptionRequest(BaseModel):
+    plaintext: str = Field(min_length=1, max_length=25_000)
+    cipher: EncryptionCipher
+    shift: int | None = None
+    multiplier: int | None = None
+    offset: int | None = None
+    keyword: str | None = Field(default=None, max_length=64)
+
+
+class EncryptionResponse(BaseModel):
+    normalized_text: str
+    ciphertext: str
+    cipher: str
+    key: str
+    length: int
